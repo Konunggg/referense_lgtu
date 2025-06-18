@@ -1,0 +1,78 @@
+services:
+
+    # Backend контейнер
+    backend:
+        # Для установки нужных пакетов используем не чистый образ, а инструкции из конкретного файла Dockerfile
+        build:
+            context: .
+            dockerfile: .docker/backend/Dockerfile
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+        restart: unless-stopped
+        tty: true
+        working_dir: /var/www
+        volumes:
+            - .:/var/www # Монтируем локальную папку в контейнер как /var/www
+            - ./.docker/backend/php.ini:/usr/local/etc/php/php.ini
+        depends_on:
+            - db
+
+    # Nginx контейнер для вебсервера
+    nginx:
+        # Используем готовый образ для nginx контейнера
+        image: nginx:alpine
+        restart: unless-stopped
+        tty: true
+        ports:
+            - "80:80" # Внутренний порт контейнера пробрасываем на host машину
+        volumes:
+            - .:/var/www # Монтируем локальную папку в контейнер как /var/www
+            - ./.docker/nginx/conf.d/:/etc/nginx/conf.d/ # Передаем в контейнер конфигурационные файлы nginx
+        depends_on:
+            - backend
+
+    # MariaDB контейнер
+    db:
+        image: postgres:14-alpine
+        ports:
+            - "5432:5432"
+        volumes:
+            - dbdata:/var/lib/postgresql/data
+            - ./.docker/pgsql:/home/shared
+        environment:
+            - POSTGRES_PASSWORD=postgres
+            - POSTGRES_USER=postgres
+            - POSTGRES_DB=postgres
+
+    # Для сборки js
+    node:
+        build:
+            context: .
+            dockerfile: .docker/nodejs/Dockerfile
+        tty: true
+        #restart: always
+        restart: unless-stopped
+        ports:
+            - "5173:5173"
+        working_dir: /var/www
+        volumes:
+            - .:/var/www # Монтируем локальную папку в контейнер как /var/www
+
+    meilisearch:
+        image: getmeili/meilisearch:latest
+        container_name: meilisearch
+        restart: unless-stopped
+        ports:
+            - "7720:7700"
+        environment:
+            MEILI_NO_ANALYTICS: ${MEILISEARCH_NO_ANALYTICS}
+            MEILI_NO_SENTRY: ${MEILISEARCH_NO_SENTRY}
+            MEILI_MASTER_KEY: ${MEILISEARCH_KEY}
+        volumes:
+            - ./.docker/meilisearch/data:/meilisearch-data
+
+# Тома
+volumes:
+    # Чтобы данные БД не пропадали после выключения создаем именованный том
+    dbdata:
+        driver: local
